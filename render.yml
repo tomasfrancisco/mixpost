@@ -1,0 +1,87 @@
+services:
+  - name: traefik
+    type: web
+    env: docker
+    plan: starter
+    image: traefik
+    autoDeploy: true
+    command:
+      - "--api=true"
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.mytlschallenge.acme.tlschallenge=true"
+      - "--certificatesresolvers.mytlschallenge.acme.email=${SSL_EMAIL}"
+      - "--certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - 80
+      - 443
+    volumes:
+      - name: traefik_data
+        path: /letsencrypt
+      - name: docker_sock
+        path: /var/run/docker.sock
+    envVars:
+      - key: SSL_EMAIL
+        value: ${SSL_EMAIL}
+
+  - name: mixpost
+    type: web
+    env: docker
+    image: inovector/mixpost:latest
+    envVars:
+      - key: APP_DOMAIN
+        value: ${APP_DOMAIN}
+    volumes:
+      - name: storage
+        path: /var/www/html/storage/app
+      - name: logs
+        path: /var/www/html/storage/logs
+    dependsOn:
+      - mysql
+      - redis
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.mixpost.rule=Host(`${APP_DOMAIN}`)
+      - traefik.http.routers.mixpost.tls=true
+      - traefik.http.routers.mixpost.entrypoints=web,websecure
+      - traefik.http.routers.mixpost.tls.certresolver=mytlschallenge
+    healthCheckPath: /
+
+  - name: mysql
+    type: web
+    env: docker
+    image: mysql/mysql-server:8.0
+    autoDeploy: true
+    envVars:
+      - key: MYSQL_DATABASE
+        value: ${DB_DATABASE}
+      - key: MYSQL_USER
+        value: ${DB_USERNAME}
+      - key: MYSQL_PASSWORD
+        value: ${DB_PASSWORD}
+    volumes:
+      - name: mysql
+        path: /var/lib/mysql
+
+  - name: redis
+    type: web
+    env: docker
+    image: redis:latest
+    command:
+      - redis-server --appendonly yes --replica-read-only no
+    volumes:
+      - name: redis
+        path: /data
+
+volumes:
+  - name: traefik_data
+  - name: docker_sock
+  - name: storage
+  - name: logs
+  - name: mysql
+  - name: redis
